@@ -3,12 +3,7 @@
     try { chrome.runtime.sendMessage({ type: "log", level: "info", ctx, msg, meta }); } catch (e) {}
   };
 
-  const YT_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence)|get_video_info/i;
-
-  const AD_KEYS = new Set([
-    "adPlacements", "adSlots", "playerAds", "adBreakHeartbeatParams",
-    "adClientParams", "instreamAds"
-  ]);
+  const YT_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence|player?)/i;
 
   const strip = (obj) => {
     if (!obj || typeof obj !== "object") return obj;
@@ -17,9 +12,11 @@
       return obj;
     }
     for (const k of Object.keys(obj)) {
-      if (AD_KEYS.has(k)) { delete obj[k]; continue; }
-      if (k === "ads" && Array.isArray(obj[k])) { obj[k] = []; continue; }
-      if (k === "ad" && obj[k] && typeof obj[k] === "object") { obj[k] = null; continue; }
+      const lk = k.toLowerCase();
+      if (lk.includes("ad") || lk.includes("ads") || lk.includes("break") || lk.includes("vast")) {
+        delete obj[k];
+        continue;
+      }
       strip(obj[k]);
     }
     return obj;
@@ -42,6 +39,7 @@
     } catch (e) { return text; }
   };
 
+  // Fetch
   const origFetch = window.fetch;
   window.fetch = async function (input, init) {
     try {
@@ -49,8 +47,8 @@
       if (url && YT_URL.test(url)) {
         const resp = await origFetch.apply(this, arguments);
         const ct = resp.headers.get("content-type") || "";
-        if (ct.includes("application/json")) {
-          const txt = await resp.text();
+        if (ct.includes("json") || ct.includes("javascript")) {
+          const txt = await resp.clone().text();
           const mod = safeJson(txt);
           return new Response(mod, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
         }
@@ -60,6 +58,7 @@
     return origFetch.apply(this, arguments);
   };
 
+  // XHR
   const origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function () { this._url = arguments[1]; return origOpen.apply(this, arguments); };
   const origSend = XMLHttpRequest.prototype.send;
@@ -73,10 +72,10 @@
           try {
             if (self.readyState === 4 && self.responseText) {
               const ct = self.getResponseHeader && self.getResponseHeader("content-type") || "";
-              if (ct.includes("application/json") || self.responseText.startsWith("{")) {
+              if (ct.includes("json") || ct.includes("javascript") || self.responseText.trim().startsWith("{") || self.responseText.trim().startsWith("[")) {
                 const mod = safeJson(self.responseText);
-                Object.defineProperty(self, "responseText", { value: mod, writable: false });
-                Object.defineProperty(self, "response", { value: mod, writable: false });
+                try { Object.defineProperty(self, "responseText", { value: mod, writable: false, configurable: true }); } catch (e) {}
+                try { Object.defineProperty(self, "response", { value: mod, writable: false, configurable: true }); } catch (e) {}
               }
             }
           } catch (e) {}
@@ -87,15 +86,16 @@
     return origSend.apply(this, arguments);
   };
 
+  // Skip + cleanup
   const inc = () => { try { chrome.runtime.sendMessage({ type: "incBlock" }); } catch (e) {} };
   let obs;
   const start = () => {
     if (obs) return;
     obs = new MutationObserver(() => {
       try {
-        document.querySelectorAll(".ytp-ad-skip-button, .ytp-skip-ad-button, button[aria-label*='Skip']").forEach(b => { try { b.click(); inc(); } catch (e) {} });
-        document.querySelectorAll(".ytp-ad-overlay-container, .ytp-ad-text-overlay, .ytp-ad-image-overlay, .ytp-ad-survey").forEach(el => { try { el.remove(); } catch (e) {} });
-        document.querySelectorAll("ytd-ad-slot-renderer, .ytd-ad-slot-renderer, ytd-display-ad-renderer, .ytd-video-masthead-ad-v3-renderer, .sparkles-light-cta").forEach(el => { try { el.style.display = "none"; el.remove(); } catch (e) {} });
+        document.querySelectorAll(".ytp-ad-skip-button, .ytp-skip-ad-button, button[aria-label*='Skip ad'], button[aria-label*='Skip']").forEach(b => { try { b.click(); inc(); } catch (e) {} });
+        document.querySelectorAll(".ytp-ad-overlay-container, .ytp-ad-text-overlay, .ytp-ad-image-overlay, .ytp-ad-survey, .ytp-ad-message").forEach(el => { try { el.remove(); } catch (e) {} });
+        document.querySelectorAll("ytd-ad-slot-renderer, .ytd-ad-slot-renderer, ytd-display-ad-renderer, ytd-promoted-video-renderer, .ytd-video-masthead-ad-v3-renderer, .sparkles-light-cta, .ytp-ad-module").forEach(el => { try { el.style.display = "none"; el.remove(); } catch (e) {} });
       } catch (e) {}
     });
     obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
