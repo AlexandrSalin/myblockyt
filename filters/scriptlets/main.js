@@ -3,7 +3,8 @@
     try { chrome.runtime.sendMessage({ type: "log", level: "info", ctx, msg, meta }); } catch (e) {}
   };
 
-  const YT_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence|player?)/i;
+  const YT_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence|player\?|browse|search)/i;
+  const SKIP_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence)/i;
 
   const strip = (obj) => {
     if (!obj || typeof obj !== "object") return obj;
@@ -13,7 +14,11 @@
     }
     for (const k of Object.keys(obj)) {
       const lk = k.toLowerCase();
-      if (lk.includes("ad") || lk.includes("ads") || lk.includes("break") || lk.includes("vast")) {
+      if (lk.includes("adbreak") || lk.includes("vast") || lk === "ad" || lk === "ads" || lk === "playerads") {
+        delete obj[k];
+        continue;
+      }
+      if (lk === "adplacements" || lk === "adslots" || lk === "adclientparams") {
         delete obj[k];
         continue;
       }
@@ -39,12 +44,11 @@
     } catch (e) { return text; }
   };
 
-  // Fetch
   const origFetch = window.fetch;
   window.fetch = async function (input, init) {
     try {
       const url = typeof input === "string" ? input : input?.url;
-      if (url && YT_URL.test(url)) {
+      if (url && SKIP_URL.test(url)) {
         const resp = await origFetch.apply(this, arguments);
         const ct = resp.headers.get("content-type") || "";
         if (ct.includes("json") || ct.includes("javascript")) {
@@ -58,21 +62,20 @@
     return origFetch.apply(this, arguments);
   };
 
-  // XHR
   const origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function () { this._url = arguments[1]; return origOpen.apply(this, arguments); };
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (body) {
     try {
       const url = this._url;
-      if (url && YT_URL.test(url)) {
+      if (url && SKIP_URL.test(url)) {
         const self = this;
         const origOnReady = self.onreadystatechange;
         self.onreadystatechange = function () {
           try {
             if (self.readyState === 4 && self.responseText) {
               const ct = self.getResponseHeader && self.getResponseHeader("content-type") || "";
-              if (ct.includes("json") || ct.includes("javascript") || self.responseText.trim().startsWith("{") || self.responseText.trim().startsWith("[")) {
+              if (ct.includes("json") || ct.includes("javascript") || /^\s*[\[{]/.test(self.responseText)) {
                 const mod = safeJson(self.responseText);
                 try { Object.defineProperty(self, "responseText", { value: mod, writable: false, configurable: true }); } catch (e) {}
                 try { Object.defineProperty(self, "response", { value: mod, writable: false, configurable: true }); } catch (e) {}
@@ -86,7 +89,6 @@
     return origSend.apply(this, arguments);
   };
 
-  // Skip + cleanup
   const inc = () => { try { chrome.runtime.sendMessage({ type: "incBlock" }); } catch (e) {} };
   let obs;
   const start = () => {
@@ -102,8 +104,4 @@
   };
   const wait = () => (document.body ? start() : setTimeout(wait, 30));
   wait();
-
-  window.__myblockyt_debug = () => {
-    chrome.runtime.sendMessage({ type: "getLogs", limit: 400 }, (r) => console.log("[MyBlockYT DEBUG]", r));
-  };
 })();
