@@ -1,9 +1,4 @@
 (function () {
-  const LOG = (ctx, msg, meta) => {
-    try { chrome.runtime.sendMessage({ type: "log", level: "info", ctx, msg, meta }); } catch (e) {}
-  };
-
-  const YT_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence|player\?|browse|search)/i;
   const SKIP_URL = /youtubei\/v1\/(player|get_watch|next|reel_watch_sequence)/i;
 
   const strip = (obj) => {
@@ -14,26 +9,22 @@
     }
     for (const k of Object.keys(obj)) {
       const lk = k.toLowerCase();
-      if (lk.includes("adbreak") || lk.includes("vast") || lk === "ad" || lk === "ads" || lk === "playerads") {
+      if (lk === "adplacements" || lk === "adslots" || lk === "adclientparams" || lk === "adbreaks" || lk === "adbreakheartbeatparams") {
         delete obj[k];
         continue;
       }
-      if (lk === "adplacements" || lk === "adslots" || lk === "adclientparams") {
+      if (lk === "playerads" || lk === "instreamads" || lk === "externalads") {
         delete obj[k];
+        continue;
+      }
+      if (lk === "ad" || lk === "ads" || lk === "vast") {
+        if (Array.isArray(obj[k])) obj[k] = [];
+        else obj[k] = null;
         continue;
       }
       strip(obj[k]);
     }
     return obj;
-  };
-
-  const origParse = JSON.parse;
-  JSON.parse = function (text, reviver) {
-    try {
-      const v = origParse.call(this, text, reviver);
-      strip(v);
-      return v;
-    } catch (e) { return origParse.call(this, text, reviver); }
   };
 
   const safeJson = (text) => {
@@ -51,10 +42,9 @@
       if (url && SKIP_URL.test(url)) {
         const resp = await origFetch.apply(this, arguments);
         const ct = resp.headers.get("content-type") || "";
-        if (ct.includes("json") || ct.includes("javascript")) {
+        if (ct.includes("json")) {
           const txt = await resp.clone().text();
-          const mod = safeJson(txt);
-          return new Response(mod, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
+          return new Response(safeJson(txt), { status: resp.status, statusText: resp.statusText, headers: resp.headers });
         }
         return resp;
       }
@@ -75,7 +65,7 @@
           try {
             if (self.readyState === 4 && self.responseText) {
               const ct = self.getResponseHeader && self.getResponseHeader("content-type") || "";
-              if (ct.includes("json") || ct.includes("javascript") || /^\s*[\[{]/.test(self.responseText)) {
+              if (ct.includes("json") || /^\s*[\[{]/.test(self.responseText)) {
                 const mod = safeJson(self.responseText);
                 try { Object.defineProperty(self, "responseText", { value: mod, writable: false, configurable: true }); } catch (e) {}
                 try { Object.defineProperty(self, "response", { value: mod, writable: false, configurable: true }); } catch (e) {}
