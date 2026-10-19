@@ -1,0 +1,17 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: zip -r myblockyt-${{ github.ref_name }}.zip . -x "*.git*" -x ".github/*" -x "*.DS_Store*" -x "node_modules/*"
+      - run: sha256sum myblockyt-${{ github.ref_name }}.zip > myblockyt-${{ github.ref_name }}.zip.sha256
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            myblockyt-${{ github.ref_name }}.zip
+            myblockyt-${{ github.ref_name }}.zip.sha256
