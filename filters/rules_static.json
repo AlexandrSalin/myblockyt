@@ -36,12 +36,6 @@
     "condition": { "regexFilter": "youtube\\.com/pagead/", "resourceTypes": ["xmlhttprequest", "script"] }
   },
   {
-    "id": 7,
-    "priority": 1,
-    "action": { "type": "block" },
-    "condition": { "regexFilter": "googlevideo\\.com/.*(oad|ad)", "resourceTypes": ["xmlhttprequest"] }
-  },
-  {
     "id": 8,
     "priority": 1,
     "action": { "type": "block" },
